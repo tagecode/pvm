@@ -52,12 +52,13 @@ jobs:
         shell: pwsh
         run: |
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ github.event.inputs.version }}"
+            $raw = "${{ github.event.inputs.version }}"
           } else {
-            $version = "${{ github.ref_name }}".TrimStart("v")
+            $raw = "${{ github.ref_name }}"
           }
-          if ([string]::IsNullOrWhiteSpace($version)) {
-            throw "version is empty"
+          $version = $raw.Trim() -replace '^v+', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "invalid release version '$raw' (expected format like 0.1.0 or v0.1.0)"
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
@@ -131,9 +132,14 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ github.event.inputs.version }}"
+            raw="${{ github.event.inputs.version }}"
           else
-            version="${GITHUB_REF_NAME#v}"
+            raw="${GITHUB_REF_NAME}"
+          fi
+          version="$(printf '%s' "$raw" | sed 's/^v\+//')"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "invalid release version '$raw' (expected format like 0.1.0 or v0.1.0)"
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
@@ -148,7 +154,7 @@ jobs:
       - name: Verify release notes
         shell: bash
         run: |
-          notes="docs/releases/${{ steps.meta.outputs.version }}.md"
+          notes="docs/releases/${{ steps.meta.outputs.tag }}.md"
           if [ ! -f "$notes" ]; then
             echo "Missing release notes: $notes"
             exit 1
@@ -160,7 +166,8 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: PVM ${{ steps.meta.outputs.version }}
-          body_path: docs/releases/${{ steps.meta.outputs.version }}.md
+          body_path: docs/releases/${{ steps.meta.outputs.tag }}.md
+          fail_on_unmatched_files: true
           files: |
             dist/pvm-v*-windows-x64.exe
             dist/pvm-v*-windows-x64.zip

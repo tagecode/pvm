@@ -1,0 +1,173 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v prefix (e.g. 0.1.0)"
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            arch: x64
+          - goarch: 386
+            arch: x86
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version
+        id: meta
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          }
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "version is empty"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build binary
+        shell: pwsh
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          . ./scripts/naming.ps1
+          $artifact = Get-PvmArtifactBaseName -Version $env:VERSION -Arch "${{ matrix.arch }}"
+          $ldflags = "-s -w -X tagecode/pvm/cmd.cliVersion=$env:VERSION"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -trimpath -ldflags $ldflags -o dist/pvm.exe .
+          Copy-Item dist/pvm.exe "dist/$artifact.exe"
+
+      - name: Package zip
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          . ./scripts/naming.ps1
+          $artifact = Get-PvmArtifactBaseName -Version $env:VERSION -Arch "${{ matrix.arch }}"
+          ./scripts/package.ps1 `
+            -BinaryPath dist/pvm.exe `
+            -OutputDir dist `
+            -Version $env:VERSION `
+            -Arch ${{ matrix.arch }} `
+            -StandaloneExePath "dist/$artifact.exe"
+
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --no-progress -y
+
+      - name: Build MSI
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          ./scripts/build-msi.ps1 `
+            -BinaryPath dist/pvm.exe `
+            -OutputDir dist `
+            -Version $env:VERSION `
+            -Arch ${{ matrix.arch }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: |
+            dist/pvm-v${{ steps.meta.outputs.version }}-windows-${{ matrix.arch }}.exe
+            dist/pvm-v${{ steps.meta.outputs.version }}-windows-${{ matrix.arch }}.zip
+            dist/pvm-v${{ steps.meta.outputs.version }}-windows-${{ matrix.arch }}.msi
+            dist/checksums-${{ matrix.arch }}.txt
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Merge checksums
+        shell: bash
+        run: |
+          cd dist
+          cat checksums-*.txt > checksums.txt
+          ls -la
+
+      - name: Verify release notes
+        shell: bash
+        run: |
+          notes="docs/releases/${{ steps.meta.outputs.version }}.md"
+          if [ ! -f "$notes" ]; then
+            echo "Missing release notes: $notes"
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: PVM ${{ steps.meta.outputs.version }}
+          body_path: docs/releases/${{ steps.meta.outputs.version }}.md
+          files: |
+            dist/pvm-v*-windows-x64.exe
+            dist/pvm-v*-windows-x64.zip
+            dist/pvm-v*-windows-x64.msi
+            dist/pvm-v*-windows-x86.exe
+            dist/pvm-v*-windows-x86.zip
+            dist/pvm-v*-windows-x86.msi
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

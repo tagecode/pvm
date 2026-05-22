@@ -1,0 +1,26 @@
+# Build outputs
+/pvm.exe
+/pvm-windows-*.exe
+/dist/
+*.msi
+
+# Local PVM data (when PVM_HOME points into repo)
+.pvm/
+
+# Test / temp
+*.part
+*.tmp
+
+# Offline PHP fixtures (large; keep directory, ignore zips)
+/docs/zip/*.zip
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+/vendor/

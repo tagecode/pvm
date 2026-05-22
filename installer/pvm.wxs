@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product
+    Id="*"
+    Name="PVM $(var.VersionTag) ($(var.ArchLabel))"
+    Language="1033"
+    Version="$(var.ProductVersion)"
+    Manufacturer="tagecode"
+    UpgradeCode="A7C4E2B1-9F3D-4C8A-B6E5-1D2F3A4B5C6D">
+
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perUser"
+      Platform="$(var.Platform)"
+      Description="PHP Version Manager for Windows"
+      Comments="PVM $(var.VersionTag) for Windows $(var.ArchLabel)" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of PVM is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="MainFeature" Title="PVM" Level="1">
+      <ComponentRef Id="PvmComponent" />
+    </Feature>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsFolder" Name="Programs">
+          <Directory Id="INSTALLFOLDER" Name="pvm" />
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Component Id="PvmComponent" Guid="*" Directory="INSTALLFOLDER">
+      <File Id="PvmExeFile" Name="pvm.exe" Source="$(var.PvmBinary)" KeyPath="yes" />
+      <util:Environment
+        Id="PvmUserPath"
+        Name="PATH"
+        Value="[INSTALLFOLDER]"
+        Action="set"
+        Part="first"
+        Permanent="no"
+        System="no" />
+      <util:Environment
+        Id="PvmPhpPath"
+        Name="PATH"
+        Value="[%USERPROFILE]\.pvm\current"
+        Action="set"
+        Part="first"
+        Permanent="no"
+        System="no" />
+      <util:Environment
+        Id="PvmHomeEnv"
+        Name="PVM_HOME"
+        Value="[%USERPROFILE]\.pvm"
+        Action="set"
+        Part="all"
+        Permanent="no"
+        System="no" />
+      <util:Environment
+        Id="PvmPhpHomeEnv"
+        Name="PHP_HOME"
+        Value="[%USERPROFILE]\.pvm\current"
+        Action="set"
+        Part="all"
+        Permanent="no"
+        System="no" />
+      <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+    </Component>
+  </Product>
+</Wix>

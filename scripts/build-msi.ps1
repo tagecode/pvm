@@ -69,7 +69,6 @@ if ($LASTEXITCODE -ne 0) {
 
 $lightArgs = @(
     "-nologo"
-    "-ext", "WixUtilExtension"
     "-out", $msiPath
     $wixObj
 )
